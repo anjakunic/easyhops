@@ -138,3 +138,16 @@ def test_per_frame_feeds_and_validation():
     assert [m.feedrate for m in op.moves] == feeds
     with pytest.raises(ValueError):
         FrameToolpathStrategies.vector_milling([frames], MachiningTool(404), feedrates=[1000, 2000])
+
+
+def test_read_back_returns_world_coordinates():
+    part_frame = Frame(Point(-250, -100, -50), Vector(0, 1, 0), Vector(-1, 0, 0))  # part rotated 90 deg in plan
+    world_passes = [[f.transformed(Transformation.from_frame(part_frame)) for f in p] for p in make_passes()]
+    machinings = FrameToolpathStrategies.vector_milling(world_passes, MachiningTool(404), part_frame=part_frame)
+    job = HOPSJob(VarsDefinition(dx=500, dy=200, dz=100), FinishedPart(), ParkPosition(), machinings)
+    back = FrameToolpathStrategies.read_back(job, part_frame=part_frame)
+    assert [len(p) for p in back] == [len(p) for p in world_passes]
+    for written, frames in zip(back, world_passes):
+        for (point, vector), frame in zip(written, frames):
+            assert point == pytest.approx(tuple(frame.point), abs=1e-3)
+            assert vector == pytest.approx(tuple(frame.zaxis), abs=1e-6)

@@ -6,7 +6,9 @@ from typing import List
 from typing import Optional
 
 from compas.geometry import Frame
+from compas.geometry import Point
 from compas.geometry import Transformation
+from compas.geometry import Vector
 
 from ..machining_commands import VectorMillingOperation
 from ..machining_commands import VectorMove
@@ -104,10 +106,7 @@ class FrameToolpathStrategies:
         error (degrees), the tilt range, the largest rotation (DW) step between two
         moves, and a list of warnings to look at in the HOPS simulation.
         """
-        from ..hop_job import HOPSJob
-
-        parsed = HOPSJob.from_hop_string(str(job))
-        operations = [op for m in parsed.machinings for op in m.operations if isinstance(op, VectorMillingOperation)]
+        operations = FrameToolpathStrategies._vector_operations(job)
         report = {
             "passes": len(operations),
             "points": 0,
@@ -152,6 +151,35 @@ class FrameToolpathStrategies:
             if max(tilts) > 90.0 + 1e-6:
                 report["warnings"].append(f"Tilt up to {max(tilts):.3f} deg: tool points below horizontal (undercut).")
         return report
+
+    @staticmethod
+    def read_back(job: "HOPSJob", part_frame: Optional[Frame] = None) -> List[List[tuple]]:
+        """Return what the job's HOP text says, per vector pass, in world coordinates.
+
+        Each pass is a list of ``(point, vector)`` tuples: the tool tip and the unit tool
+        vector (tip -> holder) of every VG01, computed back from the written DW/KW angles.
+        Use it to preview the file (e.g. as tool-axis lines in Rhino) instead of the input.
+        """
+        to_world = Transformation.from_frame(part_frame) if part_frame is not None else None
+        passes = []
+        for operation in FrameToolpathStrategies._vector_operations(job):
+            moves = []
+            for move in operation.moves:
+                point = Point(move.x, move.y, move.z)
+                vector = Vector(*move.tool_vector)
+                if to_world is not None:
+                    point = point.transformed(to_world)
+                    vector = vector.transformed(to_world)
+                moves.append(((point.x, point.y, point.z), (vector.x, vector.y, vector.z)))
+            passes.append(moves)
+        return passes
+
+    @staticmethod
+    def _vector_operations(job: "HOPSJob") -> List[VectorMillingOperation]:
+        from ..hop_job import HOPSJob
+
+        parsed = HOPSJob.from_hop_string(str(job))
+        return [op for m in parsed.machinings for op in m.operations if isinstance(op, VectorMillingOperation)]
 
     @staticmethod
     def _to_part(frames: List[Frame], part_frame: Optional[Frame], z_to_holder: bool):

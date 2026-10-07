@@ -30,6 +30,7 @@ from compas.geometry import Vector
 from easyhops.hop_core import FinishedPart
 from easyhops.hop_core import ParkPosition
 from easyhops.hop_core import VarsDefinition
+from easyhops.hop_core import hop_header
 from easyhops.hop_job import HOPSJob
 from easyhops.machining_commands import VectorMove
 from easyhops.strategies.frames import FrameToolpathStrategies
@@ -39,20 +40,6 @@ DX, DY, DZ = 500.0, 200.0, 100.0
 DEPTH = 2.0  # cutting depth along the tool axis
 CLEARANCE = 15.0  # approach / exit distance along the tool axis
 FEED_APPROACH, FEED_ENTRY, FEED_CUT = 5000, 1000, 2000
-
-HEADER = [
-    ";MAKROTYP=0",
-    ";INFO=easyhops vector milling calibration",
-    ";WZGV=7235C_219",
-    ";MASCHINE=Holzher",
-    ";NCNAME={name}",
-    ";KOMMENTAR=",
-    ";DIALOGDLL=Dialoge.Dll",
-    ";DIALOGPROC=StandardFormAnzeigen",
-    ";AUTOSCRIPTSTART=1",
-    ";BUTTONBILD=",
-    ";DIMENSION_UNIT=0",
-]
 
 
 def tool_frame(point, tool_vector):
@@ -188,7 +175,7 @@ def build_job(name, tool_no, rpm, retract):
         machining = FrameToolpathStrategies.vector_milling([frames], tool, feedrates=[feeds], comment=comments[0])[0]
         machining.comments += [f"; {line}" for line in comments[1:]]
         machinings.append(machining)
-    header = [line.format(name=name) for line in HEADER]
+    header = hop_header(name, info="easyhops vector milling calibration")
     job = HOPSJob(VarsDefinition(dx=DX, dy=DY, dz=DZ), FinishedPart(), ParkPosition(), machinings, header=header)
     report = FrameToolpathStrategies.check(job, [frames for _, frames, _ in calibration_passes(retract)])
     return job, report

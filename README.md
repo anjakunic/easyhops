@@ -175,6 +175,8 @@ The tool angles follow the machine's own macros (`Calc_DW_KW_NV`, `Rot3D_V7`):
 (`data/calibration/`) that checks origin, axis directions and tool-tip reference in the
 HOPS simulation.
 
+For Grasshopper, use the Script component in [`examples/grasshopper/`](examples/grasshopper/README.md).
+
 ---
 
 ## Preset tools
