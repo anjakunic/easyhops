@@ -1433,40 +1433,83 @@ class VectorMove(MoveCommand):
 class VectorStartPoint(MoveCommand):
     """HOPS vector start point (VSP): start of a vector (5-axis) milling path.
 
-    ``VSP (x, y, z, DW, KW, f1, f2, f3, f4, f5, f6, f7, f8)``
+    ``VSP (X, Y, Z, DW, KW, Laser, Res3, Res4, Res5, Darstellen, SaugerCheck, DreiAchsMode, AB)``
 
-    Position and angles as in :class:`VectorMove`. The eight trailing parameters are
-    not documented in the HOPS macros; they are kept as raw ``flags``. Known values:
+    Parameter names and meanings from the NC-HOPS 8 definition ``System/SYS/VSP.SYS`` and
+    the help page "Macro Starting point vector milling". Position and angles as in
+    :class:`VectorMove`.
 
-    - ``FLAGS_5AXIS = (0, 0, 0, 0, 3, 1, 1, 0)``: ``_SystemV7/Sphere.hop`` in its "5Axis" mode
-      (its "3Axis" mode differs only in the 7th flag, 1 -> 0)
-    - ``FLAGS_FUSION = (0, 0, 0, 0, 3, 0, 0, 0)``: Fusion 360 HOPS post-processor output
+    Parameters:
+    -----------
+    x, y, z : float
+        Start point (tool tip) in part coordinates
+    rotation_angle, tilt_angle : float
+        DW / KW at the start point
+    laser : bool
+        "Laser path": show this path on the laser
+    display : int
+        "Display mode": 0 do not show, 1 show in Hops, 2 show in Workcenter, 3 both (default)
+    check_pads : bool
+        "Check pads": if False, Workcenter ignores this path when checking through-going processing
+    three_axis : bool
+        "3-axis mode": use only 3 axes. The tool stays vertical and DW/KW of the path are
+        ignored, so this must be False for 5-axis milling (default).
+    approach : int
+        "Approach to starting point": 0 standard (uses the safety settings), 6 without safety
 
     Example:
     --------
         >>> str(VectorStartPoint(490, -129.968, 192.5, 90, 90))
-        'VSP (490,-129.968,192.5,90,90,0,0,0,0,3,1,1,0)'
+        'VSP (490,-129.968,192.5,90,90,0,0,0,0,3,1,0,0)'
     """
 
-    FLAGS_5AXIS = (0, 0, 0, 0, 3, 1, 1, 0)
-    FLAGS_FUSION = (0, 0, 0, 0, 3, 0, 0, 0)
-
-    def __init__(self, x: float, y: float, z: float, rotation_angle: float, tilt_angle: float, flags: tuple = FLAGS_5AXIS):
+    def __init__(
+        self,
+        x: float,
+        y: float,
+        z: float,
+        rotation_angle: float,
+        tilt_angle: float,
+        laser: bool = False,
+        display: int = 3,
+        check_pads: bool = True,
+        three_axis: bool = False,
+        approach: int = 0,
+    ):
         super().__init__()
-        if len(flags) != 8:
-            raise ValueError(f"VSP needs 8 flags, got {len(flags)}")
         self.x = x
         self.y = y
         self.z = z
         self.rotation_angle = rotation_angle
         self.tilt_angle = tilt_angle
-        self.flags = tuple(flags)
+        self.laser = laser
+        self.display = display
+        self.check_pads = check_pads
+        self.three_axis = three_axis
+        self.approach = approach
 
     def __repr__(self) -> str:
-        return f"VectorStartPoint(x={self.x}, y={self.y}, z={self.z}, DW={self.rotation_angle}, KW={self.tilt_angle}, flags={self.flags})"
+        return (
+            f"VectorStartPoint(x={self.x}, y={self.y}, z={self.z}, DW={self.rotation_angle}, KW={self.tilt_angle}, "
+            f"three_axis={self.three_axis}, approach={self.approach})"
+        )
 
     def _to_hop_line(self) -> str:
-        params = [self.x, self.y, self.z, self.rotation_angle, self.tilt_angle, *self.flags]
+        params = [
+            self.x,
+            self.y,
+            self.z,
+            self.rotation_angle,
+            self.tilt_angle,
+            int(self.laser),
+            0,  # Res3
+            0,  # Res4
+            0,  # Res5
+            int(self.display),
+            int(self.check_pads),
+            int(self.three_axis),
+            int(self.approach),
+        ]
         return f"VSP ({','.join(_fmt_vector_value(p) for p in params)})"
 
     @classmethod
@@ -1476,15 +1519,15 @@ class VectorStartPoint(MoveCommand):
         if len(params) != 13:
             raise ValueError(f"VSP expects 13 parameters, got {len(params)}: {line}")
         x, y, z, dw, kw = (float(p) for p in params[:5])
-        flags = tuple(int(float(p)) for p in params[5:])
-        return cls(x, y, z, dw, kw, flags)
+        laser, _, _, _, display, check_pads, three_axis, approach = (int(float(p)) for p in params[5:])
+        return cls(x, y, z, dw, kw, bool(laser), display, bool(check_pads), bool(three_axis), approach)
 
 
 class VectorEndPoint(MoveCommand):
     """HOPS vector end point (VEP): end of a vector milling path.
 
-    ``VEP (mode)``. System macros use 0 for milling (``Sphere``, ``Clamex``) and 6 for
-    sawing (``_saege_EntlangLinie``).
+    ``VEP (AB)`` with AB 0 = standard (retreat from the last point to the safety level)
+    or 6 = without safety (NC-HOPS 8 help "Macro Ending point vector milling").
 
     Example:
     --------
@@ -1521,7 +1564,7 @@ class VectorMillingOperation(OperationCommand):
     --------
         >>> op = VectorMillingOperation.from_points([(0, 0, 10), (10, 0, 10)], [(0, 0, 1), (0, 0, 1)], 3000)
         >>> print(op)
-        VSP (0,0,10,0,0,0,0,0,0,3,1,1,0)
+        VSP (0,0,10,0,0,0,0,0,0,3,1,0,0)
         VG01 (0,0,10,0,0,3000)
         VG01 (10,0,10,0,0,3000)
         VEP (0)
@@ -1542,7 +1585,7 @@ class VectorMillingOperation(OperationCommand):
         return "\n".join([str(self.start_point)] + [str(m) for m in self.moves] + [str(self.end_point)])
 
     @classmethod
-    def from_points(cls, points, vectors, feedrates=None, flags: tuple = VectorStartPoint.FLAGS_5AXIS) -> "VectorMillingOperation":
+    def from_points(cls, points, vectors, feedrates=None) -> "VectorMillingOperation":
         """Build a path from tool-tip points and tool vectors (tip -> holder), both in part coordinates.
 
         Like the HOPS system macros, the VSP and the first VG01 share the first point.
@@ -1555,8 +1598,6 @@ class VectorMillingOperation(OperationCommand):
         vectors : sequence of (nx, ny, nz), same length as ``points``
         feedrates : float, str or sequence, optional
             One feed for all moves, or one per point. ``None`` uses ``_V`` (tool manager).
-        flags : tuple
-            VSP flags, see :class:`VectorStartPoint`.
         """
         points = [tuple(float(c) for c in p) for p in points]
         if len(points) < 2:
@@ -1576,7 +1617,7 @@ class VectorMillingOperation(OperationCommand):
                     nearest = min(defined, key=lambda j: abs(j - i))
                     angles[i] = (angles[nearest][0], 0.0)
 
-        start = VectorStartPoint(*points[0], *angles[0], flags=flags)
+        start = VectorStartPoint(*points[0], *angles[0])
         moves = [VectorMove(*p, *a, f) for p, a, f in zip(points, angles, feedrates)]
         return cls(start, moves, VectorEndPoint())
 

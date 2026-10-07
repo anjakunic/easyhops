@@ -12,7 +12,6 @@ from compas.geometry import Vector
 
 from ..machining_commands import VectorMillingOperation
 from ..machining_commands import VectorMove
-from ..machining_commands import VectorStartPoint
 from ..tool_library import MachiningTool
 
 if TYPE_CHECKING:
@@ -40,7 +39,6 @@ class FrameToolpathStrategies:
         feedrates=None,
         z_to_holder: bool = True,
         max_tilt: float = 90.0,
-        flags: tuple = VectorStartPoint.FLAGS_5AXIS,
         comment: str = "Vector milling",
     ) -> "List[HOPSMachining]":
         """Create one HOPSMachining with one vector milling operation per pass.
@@ -64,8 +62,6 @@ class FrameToolpathStrategies:
             False if it points into the material.
         max_tilt : float, optional
             Largest allowed tilt from vertical in degrees. 90 = horizontal tool.
-        flags : tuple, optional
-            VSP flags, see :class:`VectorStartPoint`.
         comment : str, optional
             Comment written above the tool call.
 
@@ -87,7 +83,7 @@ class FrameToolpathStrategies:
                 tilt = VectorMove.angles_from_vector(vector)[1]
                 if tilt > max_tilt + 1e-6:
                     raise ValueError(f"Pass {index}, frame {point_index}: tilt {tilt:.3f} deg exceeds max_tilt {max_tilt} deg.")
-            operations.append(VectorMillingOperation.from_points(points, vectors, feeds, flags=flags))
+            operations.append(VectorMillingOperation.from_points(points, vectors, feeds))
 
         return [
             HOPSMachining(

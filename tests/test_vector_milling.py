@@ -64,14 +64,25 @@ def test_vg01_parses_machine_folder_formats():
     assert str(fusion) == "VG01 (490,-129.968,192.5,90,90,3000)"
 
 
-def test_vsp_and_vep_round_trip():
-    vsp = VectorStartPoint.from_hop_line("VSP (490,-129.968,192.5,90,90.000,0,0,0,0,3,0,0,0)")
-    assert vsp.flags == VectorStartPoint.FLAGS_FUSION
-    assert VectorStartPoint.from_hop_line(str(vsp)).flags == vsp.flags
-    assert str(VectorStartPoint(1, 2, 3, 0, 0)) == "VSP (1,2,3,0,0,0,0,0,0,3,1,1,0)"
+def test_vsp_parameters_follow_hops_definition():
+    # VSP.SYS: X, Y, Z, DW, KW, Laser, Res3, Res4, Res5, Darstellen, SaugerCheck, DreiAchsMode, AB
+    fusion = VectorStartPoint.from_hop_line("VSP (490,-129.968,192.5,90,90.000,0,0,0,0,3,0,0,0)")
+    assert (fusion.laser, fusion.display, fusion.check_pads, fusion.three_axis, fusion.approach) == (False, 3, False, False, 0)
+    sphere_3axis = VectorStartPoint.from_hop_line("vsp (1,2,3,45,30,0,0,0,0,3,1,1,0)")
+    assert sphere_3axis.three_axis is True
+    assert str(VectorStartPoint.from_hop_line(str(fusion))) == str(fusion)
     assert VectorEndPoint.from_hop_line("VEP (6)").mode == 6
     with pytest.raises(ValueError):
         VectorStartPoint.from_hop_line("VSP (1,2,3)")
+
+
+def test_default_start_point_is_five_axis():
+    """Regression: DreiAchsMode=1 makes HOPS ignore DW/KW and mill everything vertically."""
+    vsp = VectorStartPoint(1, 2, 3, 90, 90)
+    assert vsp.three_axis is False
+    assert str(vsp) == "VSP (1,2,3,90,90,0,0,0,0,3,1,0,0)"  # same flags as the HOPS Clamex vector macros
+    op = FrameToolpathStrategies.vector_milling([[tool_frame((0, 0, 0), (0, -1, 0)), tool_frame((10, 0, 0), (0, -1, 0))]], MachiningTool(404))[0].operations[0]
+    assert op.start_point.three_axis is False
 
 
 def test_from_points_holds_rotation_through_vertical():
