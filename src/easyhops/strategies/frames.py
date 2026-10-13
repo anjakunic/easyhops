@@ -7,6 +7,7 @@ from typing import Optional
 
 from compas.geometry import Frame
 from compas.geometry import Point
+from compas.geometry import Rotation
 from compas.geometry import Transformation
 from compas.geometry import Vector
 
@@ -17,6 +18,9 @@ from ..tool_library import MachiningTool
 if TYPE_CHECKING:
     from ..hop_job import HOPSJob
     from ..hop_job import HOPSMachining
+
+
+_TILT_TOLERANCE = 1e-6  # degrees
 
 
 class FrameToolpathStrategies:
@@ -81,7 +85,7 @@ class FrameToolpathStrategies:
             points, vectors = FrameToolpathStrategies._to_part(frames, part_frame, z_to_holder)
             for point_index, vector in enumerate(vectors):
                 tilt = VectorMove.angles_from_vector(vector)[1]
-                if tilt > max_tilt + 1e-6:
+                if tilt > max_tilt + _TILT_TOLERANCE:
                     raise ValueError(f"Pass {index}, frame {point_index}: tilt {tilt:.3f} deg exceeds max_tilt {max_tilt} deg.")
             operations.append(VectorMillingOperation.from_points(points, vectors, feeds))
 
@@ -93,6 +97,56 @@ class FrameToolpathStrategies:
                 comments=["; ---------------------------------", f";{comment}", "; ---------------------------------"],
             )
         ]
+
+    @staticmethod
+    def limit_tilt(
+        passes: List[List[Frame]],
+        max_tilt: float,
+        part_frame: Optional[Frame] = None,
+        z_to_holder: bool = True,
+    ) -> tuple:
+        """Turn frames whose tool axis tilts more than ``max_tilt`` back to exactly ``max_tilt``.
+
+        The tilt is measured from the part's Z axis (the machine vertical). A frame that
+        tilts too far is rotated about its origin (the tool tip), in the plane of its tool
+        axis and the part Z axis, so the tool tip and the rotation angle DW stay the same.
+        A tool pointing straight down is turned about its own X axis.
+
+        Parameters
+        ----------
+        passes : list of list of :class:`compas.geometry.Frame`
+            Tool frames per pass, as given to :meth:`vector_milling`.
+        max_tilt : float
+            Largest allowed tilt from vertical in degrees (0..180).
+        part_frame : :class:`compas.geometry.Frame`, optional
+            Part frame as in :meth:`vector_milling`; defaults to the world XY frame.
+        z_to_holder : bool, optional
+            True if the frame Z axis points from the tool tip to the holder.
+
+        Returns
+        -------
+        tuple
+            ``(passes, changes)``: the passes with limited frames (unchanged frames are the
+            same objects), and one ``(pass_index, frame_index, original_tilt)`` per change.
+        """
+        if not 0.0 <= max_tilt <= 180.0:
+            raise ValueError(f"max_tilt {max_tilt} must be between 0 and 180 deg.")
+        up = part_frame.zaxis if part_frame is not None else Vector(0, 0, 1)
+        limited, changes = [], []
+        for pass_index, frames in enumerate(passes):
+            new_frames = []
+            for frame_index, frame in enumerate(frames):
+                axis = frame.zaxis if z_to_holder else -frame.zaxis
+                tilt = math.degrees(axis.angle(up))
+                if tilt > max_tilt + _TILT_TOLERANCE:
+                    hinge = axis.cross(up)
+                    if hinge.length < 1e-9:  # straight down: any axis perpendicular to the tool works
+                        hinge = frame.xaxis
+                    frame = frame.transformed(Rotation.from_axis_and_angle(hinge, math.radians(tilt - max_tilt), point=frame.point))
+                    changes.append((pass_index, frame_index, tilt))
+                new_frames.append(frame)
+            limited.append(new_frames)
+        return limited, changes
 
     @staticmethod
     def check(job: "HOPSJob", passes: List[List[Frame]], part_frame: Optional[Frame] = None, z_to_holder: bool = True) -> dict:

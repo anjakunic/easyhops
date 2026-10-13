@@ -30,7 +30,7 @@ after a `git pull` or a fix, press F5 in Grasshopper; no Rhino restart, no reins
 | `ToolNo` | Item, int | Tool position in the magazine, e.g. 404. |
 | `RPM` | Item, float | Optional spindle speed. Empty = tool-manager value. |
 | `ZToHolder` | Item, bool | Optional, default True. Set False if your plane Z points into the material. |
-| `MaxTilt` | Item, float | Optional, default 90 (horizontal tool). |
+| `MaxTilt` | Item, float | Optional, default 90 (horizontal tool). A plane that tilts more is turned about its origin (tool tip), towards `PartPlane` Z, to exactly `MaxTilt`; its rotation angle stays the same. A warning names the branch and frame (first 10 on the component, all in `Report`). |
 | `Name` | Item, str | Program and file name. Default `toolpath`. |
 | `Folder` | Item, str | Output folder. |
 | `Write` | Item, bool | Connect a Button: writes `<Folder>\<Name>.hop`. |

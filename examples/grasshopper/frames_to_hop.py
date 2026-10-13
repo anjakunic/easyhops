@@ -21,7 +21,9 @@ DX, DY, DZ  Item, float          Finished part size in mm.
 ToolNo      Item, int            Tool position in the magazine, e.g. 404.
 RPM         Item, float          Optional spindle speed. Empty: tool-manager value.
 ZToHolder   Item, bool           Optional, default True. False if your plane Z points into the material.
-MaxTilt     Item, float          Optional, default 90 (horizontal tool). Larger tilts raise an error.
+MaxTilt     Item, float          Optional, default 90 (horizontal tool). A plane that tilts more is turned
+                                 about its origin, towards PartPlane Z, to exactly MaxTilt, with a warning
+                                 naming the branch and frame (first 10 on the component, all in Report).
 Name        Item, str            Program name, also the file name. Default "toolpath".
 Folder      Item, str            Output folder.
 Write       Item, bool           Connect a Button: writes <Folder>/<Name>.hop.
@@ -67,6 +69,7 @@ from easyhops.strategies.frames import FrameToolpathStrategies  # noqa: E402
 from easyhops.tool_library import MachiningTool  # noqa: E402
 
 AXIS_LENGTH = 60.0  # length of the preview tool-axis lines in mm
+MAX_MESSAGES = 10  # warnings shown on the component; Report lists all of them
 
 
 def message(text, level="Warning"):
@@ -152,9 +155,17 @@ try:
 
     part_plane = PartPlane if PartPlane is not None else rg.Plane.WorldXY  # noqa: F821
     part_frame = to_frame(part_plane)
-    passes = [[to_frame(plane) for plane in items] for _, items in frame_branches]
     z_to_holder = True if ZToHolder is None else bool(ZToHolder)  # noqa: F821
+    max_tilt = 90.0 if MaxTilt is None else float(MaxTilt)  # noqa: F821
     name = Name or "toolpath"  # noqa: F821
+
+    # Frames tilting more than MaxTilt are turned about the tool tip, towards PartPlane Z, to exactly MaxTilt.
+    passes = [[to_frame(plane) for plane in items] for _, items in frame_branches]
+    passes, tilt_changes = FrameToolpathStrategies.limit_tilt(passes, max_tilt, part_frame=part_frame, z_to_holder=z_to_holder)
+    tilt_warnings = [
+        f"Branch {frame_branches[p][0]}, frame {f}: tilt {tilt:.3f} deg exceeds MaxTilt {max_tilt} deg, plane turned to {max_tilt} deg."
+        for p, f, tilt in tilt_changes
+    ]
 
     machinings = FrameToolpathStrategies.vector_milling(
         passes,
@@ -162,7 +173,7 @@ try:
         part_frame=part_frame,
         feedrates=feeds_for_passes(Feeds, frame_branches),  # noqa: F821
         z_to_holder=z_to_holder,
-        max_tilt=90.0 if MaxTilt is None else float(MaxTilt),  # noqa: F821
+        max_tilt=max_tilt,
         comment=name,
     )
     job = HOPSJob(
@@ -175,9 +186,12 @@ try:
 
     Hop = str(job)
     report = FrameToolpathStrategies.check(job, passes, part_frame=part_frame, z_to_holder=z_to_holder)
+    report["warnings"] = tilt_warnings + report["warnings"]
     Report = format_report(report)
-    for warning in report["warnings"]:
+    for warning in report["warnings"][:MAX_MESSAGES]:
         message(warning)
+    if len(report["warnings"]) > MAX_MESSAGES:
+        message(f"{len(report['warnings']) - MAX_MESSAGES} more warnings, see Report.")
 
     written = FrameToolpathStrategies.read_back(job, part_frame=part_frame)
     ToolAxes = lines_tree(written, AXIS_LENGTH)

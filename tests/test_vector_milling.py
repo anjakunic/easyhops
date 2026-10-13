@@ -162,3 +162,31 @@ def test_read_back_returns_world_coordinates():
         for (point, vector), frame in zip(written, frames):
             assert point == pytest.approx(tuple(frame.point), abs=1e-3)
             assert vector == pytest.approx(tuple(frame.zaxis), abs=1e-6)
+
+
+def test_limit_tilt_turns_frame_to_max_tilt_and_keeps_tip_and_rotation():
+    too_steep = tool_frame((10, 20, 30), (0.3, -0.9, -0.4))  # below horizontal
+    ok = tool_frame((0, 0, 0), (0, -1, 1))
+    down = tool_frame((5, 5, 5), (0, 0, -1))  # straight down: 180 deg
+    passes, changes = FrameToolpathStrategies.limit_tilt([[ok, too_steep], [down]], max_tilt=90.0)
+
+    assert passes[0][0] is ok
+    assert [(p, f) for p, f, _ in changes] == [(0, 1), (1, 0)]
+    assert changes[1][2] == pytest.approx(180.0)
+    for frame in (passes[0][1], passes[1][0]):
+        assert VectorMove.angles_from_vector(frame.zaxis)[1] == pytest.approx(90.0)
+    assert tuple(passes[0][1].point) == pytest.approx((10, 20, 30))
+    dw_before = VectorMove.angles_from_vector(too_steep.zaxis)[0]
+    assert VectorMove.angles_from_vector(passes[0][1].zaxis)[0] == pytest.approx(dw_before)
+    op = FrameToolpathStrategies.vector_milling(passes[:1], MachiningTool(404))[0].operations[0]
+    assert op.moves[1].tilt_angle == pytest.approx(90.0)
+
+
+def test_limit_tilt_uses_part_z_and_z_into_material():
+    part_frame = Frame(Point(0, 0, 0), Vector(1, 0, 0), Vector(0, 0, 1))  # part Z = world -Y
+    frame = tool_frame((0, 0, 0), (0, 0, 1))  # 90 deg from part Z
+    passes, changes = FrameToolpathStrategies.limit_tilt([[frame]], max_tilt=30.0, part_frame=part_frame)
+    assert changes and math.degrees(passes[0][0].zaxis.angle(part_frame.zaxis)) == pytest.approx(30.0)
+    into_material = tool_frame((0, 0, 0), (0, 0, -1))  # Z into material = tool vertical when z_to_holder=False
+    passes, changes = FrameToolpathStrategies.limit_tilt([[into_material]], max_tilt=10.0, z_to_holder=False)
+    assert changes == [] and passes[0][0] is into_material
